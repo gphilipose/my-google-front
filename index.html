@@ -29,7 +29,7 @@
   .tools button:hover { background: var(--sage-deep); color: var(--sage); }
   .tools button:focus-visible { outline: 2px solid var(--sage-deep); outline-offset: 2px; }
 
-  .widget { position: absolute; min-width: 120px; min-height: 80px; border-radius: 6px; box-shadow: var(--shadow); resize: both; overflow: hidden; touch-action: none; cursor: grab; display: flex; flex-direction: column; }
+  .widget { position: absolute; min-width: 120px; min-height: 80px; border-radius: 6px; box-shadow: var(--shadow); resize: none; overflow: hidden; touch-action: none; cursor: grab; display: flex; flex-direction: column; }
   .widget.dragging { cursor: grabbing; box-shadow: 0 16px 34px rgba(40,55,35,.28); }
   .bar { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; min-height: 28px; opacity: 0; transition: opacity .15s; }
   .widget:hover .bar, .widget:focus-within .bar { opacity: 1; }
@@ -55,9 +55,14 @@
   .image .empty button { cursor: pointer; }
   .image .empty button:hover { background: var(--sage-deep); color: var(--paper); }
   .image .empty input { background: #fff; }
+  .rz { position: absolute; right: 0; bottom: 0; width: 20px; height: 20px; z-index: 3; cursor: nwse-resize; touch-action: none; opacity: 0; transition: opacity .15s; color: var(--sage-deep); filter: drop-shadow(0 0 1px #fff);
+    background: linear-gradient(135deg, transparent 0 46%, currentColor 46% 54%, transparent 54% 66%, currentColor 66% 74%, transparent 74%); }
+  .widget:hover .rz, .rz:active { opacity: .85; }
+  .image .bar { z-index: 2; }
+  .image.cutout img { position: relative; z-index: 1; }
   .image.cutout { background: transparent; box-shadow: none; }
-  .image.cutout img { flex: 1; width: calc(100% - 20px); margin: 10px; object-fit: contain;
-    filter: drop-shadow(3px 0 0 #fff) drop-shadow(-3px 0 0 #fff) drop-shadow(0 3px 0 #fff) drop-shadow(0 -3px 0 #fff) drop-shadow(0 5px 7px rgba(40,55,35,.35)); }
+  .image.cutout img { flex: 1; width: calc(100% - 12px); margin: 6px; object-fit: contain;
+    filter: drop-shadow(0 5px 7px rgba(40,55,35,.35)); }
   .image.cutout .bar { top: 4px; left: 4px; right: 4px; border-radius: 6px; background: rgba(251,250,244,.92); color: var(--sage-deep); }
   .image .cut { font-size: 12px; font-family: inherit; }
   body { background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }
@@ -197,7 +202,7 @@ function buildImage(w, el) {
   if (w.src) {
     const tg = document.createElement('button');
     tg.className = 'cut'; tg.textContent = w.cutout ? 'Cutout: on' : 'Cutout: off';
-    tg.title = 'Outline the visible part of a transparent image';
+    tg.title = 'Show a transparent image without a panel behind it';
     tg.onclick = () => { w.cutout = !w.cutout; save(); render(); };
     el.append(bar(w, tg));
   } else el.append(bar(w));
@@ -244,7 +249,7 @@ function handleFile(w) {
 
 function makeDraggable(w, el) {
   el.addEventListener('pointerdown', e => {
-    if (e.target.closest('textarea, button, input')) return;
+    if (e.target.closest('textarea, button, input, .rz')) return;
     const r = el.getBoundingClientRect();
     if (e.clientX > r.right - 20 && e.clientY > r.bottom - 20) return; // resize corner
     w.z = ++topZ; el.style.zIndex = w.z;
@@ -281,6 +286,15 @@ function render() {
     Object.assign(el.style, { left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', zIndex: w.z || 1 });
     ({ note: buildNote, clock: buildClock, image: buildImage })[w.type](w, el);
     makeDraggable(w, el);
+    const rz = document.createElement('div'); rz.className = 'rz'; rz.title = 'Drag to resize';
+    rz.addEventListener('pointerdown', e => {
+      e.preventDefault(); rz.setPointerCapture(e.pointerId);
+      const sx = e.clientX, sy = e.clientY, sw = el.offsetWidth, sh = el.offsetHeight;
+      const mv = ev => { w.w = Math.max(120, sw + ev.clientX - sx); w.h = Math.max(80, sh + ev.clientY - sy); el.style.width = w.w + 'px'; el.style.height = w.h + 'px'; };
+      const up = () => { rz.removeEventListener('pointermove', mv); rz.removeEventListener('pointerup', up); save(); };
+      rz.addEventListener('pointermove', mv); rz.addEventListener('pointerup', up);
+    });
+    el.append(rz);
     board.append(el);
     ro.observe(el);
   });
