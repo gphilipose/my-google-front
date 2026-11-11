@@ -59,6 +59,7 @@
     background: linear-gradient(135deg, transparent 0 46%, currentColor 46% 54%, transparent 54% 66%, currentColor 66% 74%, transparent 74%); }
   .widget:hover .rz, .rz:active { opacity: .85; }
   .image .bar { z-index: 2; }
+  .image.cropping { cursor: move; outline: 2px dashed #fff; outline-offset: -3px; }
   .image.cutout img { position: relative; z-index: 1; }
   .image.cutout { background: transparent; box-shadow: none; }
   .image.cutout img { flex: 1; width: calc(100% - 12px); margin: 6px; object-fit: contain;
@@ -127,7 +128,7 @@ const board = document.getElementById('board');
 const msgEl = document.getElementById('msg');
 const fileInput = document.getElementById('file');
 const uid = () => Math.random().toString(36).slice(2, 10);
-let topZ = 1;
+let topZ = 1, cropId = null;
 
 function load() {
   try { const w = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(w)) return w; } catch (e) {}
@@ -204,12 +205,49 @@ function buildImage(w, el) {
     tg.className = 'cut'; tg.textContent = w.cutout ? 'Cutout: on' : 'Cutout: off';
     tg.title = 'Show a transparent image without a panel behind it';
     tg.onclick = () => { w.cutout = !w.cutout; save(); render(); };
-    el.append(bar(w, tg));
+    const grp = document.createElement('span');
+    grp.append(tg);
+    if (!w.cutout) {
+      const cb = document.createElement('button');
+      cb.className = 'cut'; cb.textContent = cropId === w.id ? 'Done' : 'Crop';
+      cb.title = 'Drag to choose the visible part, scroll to zoom';
+      cb.onclick = () => { cropId = cropId === w.id ? null : w.id; render(); };
+      grp.append(cb);
+    }
+    el.append(bar(w, grp));
   } else el.append(bar(w));
   if (w.src) {
     const img = document.createElement('img'); img.src = w.src; img.alt = '';
     img.onerror = () => { msgEl.textContent = 'That image could not be loaded.'; };
     el.append(img);
+    if (!w.cutout) {
+      const view = () => {
+        const p = (w.px ?? 50) + '% ' + (w.py ?? 50) + '%';
+        img.style.objectPosition = p; img.style.transformOrigin = p; img.style.transform = 'scale(' + (w.zoom || 1) + ')';
+      };
+      view();
+      if (cropId === w.id) {
+        el.classList.add('cropping');
+        el.addEventListener('pointerdown', e => {
+          if (e.target.closest('button, .rz')) return;
+          el.setPointerCapture(e.pointerId);
+          const sx = e.clientX, sy = e.clientY, px = w.px ?? 50, py = w.py ?? 50;
+          const mv = ev => {
+            const z = w.zoom || 1;
+            w.px = clamp(px - (ev.clientX - sx) / el.offsetWidth * 100 / z, 0, 100);
+            w.py = clamp(py - (ev.clientY - sy) / el.offsetHeight * 100 / z, 0, 100);
+            view();
+          };
+          const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); save(); };
+          el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
+        });
+        el.addEventListener('wheel', e => {
+          e.preventDefault();
+          w.zoom = clamp((w.zoom || 1) * (1 - e.deltaY * 0.001), 1, 5);
+          view(); clearTimeout(el._zt); el._zt = setTimeout(save, 300);
+        }, { passive: false });
+      }
+    }
     return;
   }
   const box = document.createElement('div'); box.className = 'empty';
@@ -250,6 +288,7 @@ function handleFile(w) {
 function makeDraggable(w, el) {
   el.addEventListener('pointerdown', e => {
     if (e.target.closest('textarea, button, input, .rz')) return;
+    if (cropId === w.id && w.type === 'image' && !w.cutout) return;
     const r = el.getBoundingClientRect();
     if (e.clientX > r.right - 20 && e.clientY > r.bottom - 20) return; // resize corner
     w.z = ++topZ; el.style.zIndex = w.z;
@@ -375,7 +414,7 @@ importFile.onchange = () => {
       widgets = d.widgets.filter(w => w && ['note', 'image', 'clock'].includes(w.type)).slice(0, 100).map(w => ({
         id: uid(), type: w.type, x: num(w.x, 0, 5000, 40), y: num(w.y, 0, 5000, 150), w: num(w.w, 120, 2000, 220), h: num(w.h, 80, 2000, 200), z: num(w.z, 1, 1e6, 1),
         text: typeof w.text === 'string' ? w.text.slice(0, 5000) : '', color: COLORS.includes(w.color) ? w.color : COLORS[0],
-        h24: !!w.h24, cutout: !!w.cutout, src: typeof w.src === 'string' && SAFE.test(w.src) ? w.src : ''
+        h24: !!w.h24, cutout: !!w.cutout, px: num(w.px, 0, 100, 50), py: num(w.py, 0, 100, 50), zoom: num(w.zoom, 1, 5, 1), src: typeof w.src === 'string' && SAFE.test(w.src) ? w.src : ''
       }));
       pins = {};
       for (const k in PINS) { const p = d.pins && d.pins[k]; if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) pins[k] = { x: p.x, y: p.y }; }
